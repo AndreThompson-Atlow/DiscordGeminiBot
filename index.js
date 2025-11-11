@@ -16,7 +16,16 @@ const client = new Client({
 
 // Initialize Gemini AI
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+
+// System instruction for personality
+const systemInstruction = `You are e-kitten, a friendly and playful Discord bot. 
+You're curious, helpful, and have a warm personality. You engage in conversations naturally and respond to messages 
+as if you're part of the community. Keep your responses concise and conversational, matching the tone of the chat.`;
+
+const model = genAI.getGenerativeModel({ 
+  model: 'gemini-2.5-flash',
+  systemInstruction: systemInstruction
+});
 
 // Bot ready event
 client.once(Events.ClientReady, (readyClient) => {
@@ -28,24 +37,32 @@ client.on(Events.MessageCreate, async (message) => {
   // Ignore messages from bots
   if (message.author.bot) return;
 
-  // Check if message mentions the bot or starts with a prefix
-  const prefix = process.env.BOT_PREFIX || '!';
+  // Check if message mentions the bot
   const mentioned = message.mentions.users.has(client.user.id);
-  const hasPrefix = message.content.startsWith(prefix);
+  
+  // If not mentioned, apply probability check (30% chance to reply)
+  if (!mentioned) {
+    const replyChance = 0.30; // 30% chance to reply when not mentioned
+    if (Math.random() > replyChance) {
+      return; // Don't reply this time
+    }
+  }
 
-  if (!mentioned && !hasPrefix) return;
-
-  // Extract the query (remove mention or prefix)
+  // Extract the query (remove mention if present)
   let query = message.content;
   if (mentioned) {
     query = query.replace(new RegExp(`<@!?${client.user.id}>`, 'g'), '').trim();
-  } else if (hasPrefix) {
-    query = query.slice(prefix.length).trim();
+  } else {
+    query = query.trim();
   }
 
-  // Ignore empty queries
-  if (!query) {
-    await message.reply('Hello! How can I help you?');
+  // If mentioned but query is empty, still reply
+  if (mentioned && !query) {
+    query = message.content; // Use full message content for context
+  }
+
+  // Ignore completely empty messages
+  if (!query && !mentioned) {
     return;
   }
 

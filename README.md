@@ -4,8 +4,10 @@ A simple Discord bot that integrates with Google's Gemini AI for text generation
 
 ## Features
 
-- Responds to messages that mention the bot or use a command prefix
+- Always responds when mentioned with @
+- Acts as an independent community member, occasionally joining conversations (10-15% chance)
 - Uses Google's Gemini 2.5 Flash model for AI-powered responses
+- Customizable personality through system instructions
 - Handles long responses by splitting them into multiple messages
 - Easy to configure and deploy
 
@@ -25,12 +27,12 @@ A simple Discord bot that integrates with Google's Gemini AI for text generation
    ```
 
 3. **Configure environment variables**
-   - Copy `.env.example` to `.env`
-   - Fill in your Discord bot token and Gemini API key:
+   - Create a `.env` file with your configuration:
      ```
      DISCORD_TOKEN=your_discord_bot_token_here
      GEMINI_API_KEY=your_gemini_api_key_here
-     BOT_PREFIX=!
+     REPLY_CHANCE=0.12
+     BOT_PERSONALITY=You are e-kitten, a friendly and playful Discord bot...
      ```
 
 4. **Get a Discord Bot Token**
@@ -63,14 +65,15 @@ npm run dev
 ## Usage
 
 The bot responds to:
-- Messages that mention the bot: `@YourBotName your question here`
-- Messages starting with the prefix: `!your question here` (default prefix is `!`)
+- **Always** when mentioned: `@YourBotName your question here`
+- **Occasionally** (10-15% chance) to regular messages in the chat, acting as a community member
 
 ## Configuration
 
 - `DISCORD_TOKEN`: Your Discord bot token (required)
 - `GEMINI_API_KEY`: Your Google Gemini API key (required)
-- `BOT_PREFIX`: Command prefix for the bot (optional, defaults to `!`)
+- `REPLY_CHANCE`: Probability (0.0-1.0) for the bot to reply to non-mentioned messages (optional, defaults to `0.12` for 12%)
+- `BOT_PERSONALITY`: System instruction/personality prompt for the bot (optional, has a default friendly personality)
 
 ## License
 
