@@ -1,0 +1,25 @@
+{
+  "name": "discord-gemini-bot",
+  "version": "1.0.0",
+  "description": "Discord bot with Gemini AI integration",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js"
+  },
+  "keywords": [
+    "discord",
+    "bot",
+    "gemini",
+    "ai"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "discord.js": "^14.14.1",
+    "@google/generative-ai": "^0.2.1",
+    "dotenv": "^16.3.1"
+  }
+}
+
