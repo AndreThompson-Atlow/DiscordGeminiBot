@@ -5,7 +5,7 @@ A simple Discord bot that integrates with Google's Gemini AI for text generation
 ## Features
 
 - Responds to messages that mention the bot or use a command prefix
-- Uses Google's Gemini Pro model for AI-powered responses
+- Uses Google's Gemini 2.5 Flash model for AI-powered responses
 - Handles long responses by splitting them into multiple messages
 - Easy to configure and deploy
 
