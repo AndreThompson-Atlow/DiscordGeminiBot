@@ -287,10 +287,11 @@ client.on(Events.MessageCreate, async (message) => {
   
   // Ambient emoji reactions - chance to add an emoji reaction on top of any text reply
   if (message.content.trim().length > 0) {
-    const emojiReactionChance = 0.30; // 30% chance to react with emoji
-    if (Math.random() < emojiReactionChance) {
+    const emojiReactionChance = 0.90; // 90% chance to react with emoji
+    const roll = Math.random();
+    if (roll < emojiReactionChance) {
+      console.log(`[Emoji Reaction] Chance roll passed (${(roll * 100).toFixed(1)}% < ${(emojiReactionChance * 100).toFixed(1)}%) - will react`);
       try {
-        console.log(`[Emoji Reaction] Deciding to react with emoji...`);
         
         // Diverse emoji list with variety (not just cat emojis)
         const diverseEmojis = [
@@ -336,15 +337,20 @@ client.on(Events.MessageCreate, async (message) => {
           console.log(`[Emoji Reaction] Using curated list: ${emoji}`);
         }
         
-        // React to the message (non-blocking, continues to normal reply logic)
-        message.react(emoji).catch(err => {
-          console.error('[Emoji Reaction] Error adding reaction:', err);
-        });
-        console.log(`[Emoji Reaction] ✅ Reacted with ${emoji} to message in ${channelName}`);
+        // React to the message (await to ensure it completes, especially for DMs)
+        try {
+          await message.react(emoji);
+          console.log(`[Emoji Reaction] ✅ Reacted with ${emoji} to message in ${channelName}`);
+        } catch (reactError) {
+          console.error(`[Emoji Reaction] ❌ Error adding reaction in ${channelName}:`, reactError.message);
+          // Continue even if reaction fails
+        }
       } catch (error) {
         console.error('[Emoji Reaction] ❌ Error reacting with emoji:', error);
         // Continue to normal reply logic if emoji reaction fails
       }
+    } else {
+      console.log(`[Emoji Reaction] Chance roll failed (${(roll * 100).toFixed(1)}% >= ${(emojiReactionChance * 100).toFixed(1)}%) - skipping reaction`);
     }
   }
   
