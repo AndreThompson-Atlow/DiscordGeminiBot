@@ -1,4 +1,4 @@
-import { Client, GatewayIntentBits, Events } from 'discord.js';
+import { Client, GatewayIntentBits, Events, ChannelType, Partials } from 'discord.js';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import dotenv from 'dotenv';
 
@@ -9,8 +9,15 @@ dotenv.config();
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMembers,
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
+    GatewayIntentBits.DirectMessages,
+  ],
+  partials: [
+    Partials.Channel,
+    Partials.Message,
+    Partials.User,
   ],
 });
 
@@ -49,6 +56,56 @@ client.once(Events.ClientReady, (readyClient) => {
   console.log(`✅ Bot is ready! Logged in as ${readyClient.user.tag}`);
 });
 
+// Member join event handler
+client.on(Events.GuildMemberAdd, async (member) => {
+  // Skip if the new member is a bot
+  if (member.user.bot) return;
+
+  try {
+    // Find a welcome channel (try common names, then system channel)
+    let welcomeChannel = member.guild.channels.cache.find(
+      channel => 
+        channel.type === ChannelType.GuildText && // Text channel
+        (channel.name.toLowerCase().includes('general'))
+    );
+
+    // Fallback to system channel if no welcome channel found
+    if (!welcomeChannel && member.guild.systemChannel) {
+      welcomeChannel = member.guild.systemChannel;
+    }
+
+    // If still no channel found, skip greeting
+    if (!welcomeChannel) {
+      console.log(`No welcome channel found for guild ${member.guild.name}, skipping greeting`);
+      return;
+    }
+
+    // Generate a personalized greeting using Gemini
+    const memberName = member.user.displayName || member.user.username;
+    const greetingPrompt = `A new member named ${memberName} just joined the Discord server. Write a warm, excited greeting in E-KiTTY's style (casual, lowercase, emoji-filled, playful). Keep it short and friendly, like you're genuinely happy to see them. Make sure to greet them by name or mention them.`;
+    
+    const result = await model.generateContent(greetingPrompt);
+    const response = await result.response;
+    let greeting = response.text();
+
+    // Ensure the member is mentioned in the greeting
+    if (!greeting.includes(member.user.toString()) && !greeting.toLowerCase().includes(memberName.toLowerCase())) {
+      greeting = `${member.user} ${greeting}`;
+    }
+
+    // Send the greeting
+    await welcomeChannel.send({
+      content: greeting,
+      allowedMentions: { users: [member.user.id] }
+    });
+
+    // Update engagement tracking for this channel
+    lastSpokeInChannel.set(welcomeChannel.id, Date.now());
+  } catch (error) {
+    console.error('Error greeting new member:', error);
+  }
+});
+
 // Message event handler
 client.on(Events.MessageCreate, async (message) => {
   // Ignore messages from bots
@@ -57,13 +114,16 @@ client.on(Events.MessageCreate, async (message) => {
   // Check if message mentions the bot
   const mentioned = message.mentions.users.has(client.user.id);
   
+  // Check if message is a DM
+  const isDM = message.channel.type === ChannelType.DM;
+  
   // Check if bot is "engaged" (spoke recently in this channel)
   const channelId = message.channel.id;
   const lastSpoke = lastSpokeInChannel.get(channelId);
   const isEngaged = lastSpoke && (Date.now() - lastSpoke) < ENGAGEMENT_DURATION;
   
-  // If not mentioned and not engaged, apply probability check (30% chance to reply)
-  if (!mentioned && !isEngaged) {
+  // If not mentioned, not a DM, and not engaged, apply probability check (30% chance to reply)
+  if (!mentioned && !isDM && !isEngaged) {
     const replyChance = 0.3; // 30% chance to reply when not mentioned and idle
     if (Math.random() > replyChance) {
       return; // Don't reply this time
