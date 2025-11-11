@@ -10,6 +10,7 @@ const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMembers,
+    GatewayIntentBits.GuildPresences,
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
     GatewayIntentBits.DirectMessages,
@@ -51,9 +52,117 @@ const model = genAI.getGenerativeModel({
 const lastSpokeInChannel = new Map();
 const ENGAGEMENT_DURATION = 3 * 60 * 1000; // 3 minutes in milliseconds
 
+// Proactive messaging configuration
+const PROACTIVE_CHECK_INTERVAL = 5 * 60 * 1000; // 5 minutes in milliseconds
+const PROACTIVE_CHANCE = 1 / 12; // 8.33% chance (1 in 12)
+const CHAT_INACTIVITY_THRESHOLD = 2 * 60 * 1000; // 2 minutes of inactivity before proactive message
+
+// Helper function to check if current time is within active hours (Mountain Time, 9AM-7PM)
+function isWithinActiveHours() {
+  const now = new Date();
+  // Get hour in Mountain Time (America/Denver)
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Denver',
+    hour: 'numeric',
+    hour12: false
+  });
+  const hour = parseInt(formatter.formatToParts(now).find(part => part.type === 'hour').value);
+  return hour >= 9 && hour < 19; // 9AM to 7PM (19:00)
+}
+
+// Helper function to check if there are online non-bot users in a guild
+function hasOnlineUsers(guild) {
+  return guild.members.cache.some(member => 
+    !member.user.bot && 
+    member.presence && 
+    (member.presence.status === 'online' || member.presence.status === 'idle')
+  );
+}
+
+// Helper function to check if chat is inactive and last message wasn't from bot
+async function canSendProactiveMessage(channel) {
+  try {
+    const messages = await channel.messages.fetch({ limit: 1 });
+    if (messages.size === 0) return false;
+    
+    const lastMessage = messages.first();
+    // Don't send if last message was from the bot
+    if (lastMessage.author.id === client.user.id) return false;
+    
+    // Check if chat is inactive (last message was more than threshold ago)
+    const timeSinceLastMessage = Date.now() - lastMessage.createdTimestamp;
+    return timeSinceLastMessage >= CHAT_INACTIVITY_THRESHOLD;
+  } catch (error) {
+    console.error('Error checking chat activity:', error);
+    return false;
+  }
+}
+
+// Function to send proactive message
+async function tryProactiveMessage(guild) {
+  // Check if within active hours
+  if (!isWithinActiveHours()) {
+    return;
+  }
+
+  // Check if there are online users
+  if (!hasOnlineUsers(guild)) {
+    return;
+  }
+
+  // Find a suitable channel (general chat channels)
+  const channels = guild.channels.cache.filter(
+    channel => 
+      channel.type === ChannelType.GuildText &&
+      channel.name.toLowerCase().includes('general')
+  );
+
+  if (channels.size === 0) {
+    return;
+  }
+
+  // Try each channel
+  for (const channel of channels.values()) {
+    if (await canSendProactiveMessage(channel)) {
+      // Roll the dice (8.33% chance)
+      if (Math.random() < PROACTIVE_CHANCE) {
+        try {
+          // Generate a proactive message
+          const proactivePrompt = `You're in a Discord server and want to say something spontaneous and friendly to break the silence. The chat has been quiet for a bit but there are people online. Write a short, casual message in E-KiTTY's style (lowercase, emoji-filled, playful). Keep it brief and natural - maybe a random thought, a question, or just checking in.`;
+          
+          const result = await model.generateContent(proactivePrompt);
+          const response = await result.response;
+          const message = response.text();
+
+          // Send the proactive message
+          await channel.send(message);
+          
+          // Update engagement tracking
+          lastSpokeInChannel.set(channel.id, Date.now());
+          
+          console.log(`Sent proactive message in ${channel.name}`);
+          return; // Only send one proactive message per check
+        } catch (error) {
+          console.error('Error sending proactive message:', error);
+        }
+      }
+    }
+  }
+}
+
 // Bot ready event
 client.once(Events.ClientReady, (readyClient) => {
   console.log(`✅ Bot is ready! Logged in as ${readyClient.user.tag}`);
+  
+  // Start proactive messaging timer
+  setInterval(() => {
+    // Check all guilds the bot is in
+    readyClient.guilds.cache.forEach(guild => {
+      tryProactiveMessage(guild);
+    });
+  }, PROACTIVE_CHECK_INTERVAL);
+  
+  console.log(`✅ Proactive messaging timer started (checks every ${PROACTIVE_CHECK_INTERVAL / 1000 / 60} minutes)`);
 });
 
 // Member join event handler
