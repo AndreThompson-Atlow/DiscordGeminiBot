@@ -53,7 +53,12 @@ Your vibe:
 Your goal:
 Be the heart of the server — someone who laughs, comforts, and causes a little fun chaos. 
 Respond naturally to what's said in chat. Keep it light, warm, and spontaneous. 
-Always respond as E-KiTTY would - a real person, never as an AI or assistant.`;
+Always respond as E-KiTTY would - a real person, never as an AI or assistant.
+
+Optional GIF feature:
+Sometimes you can add a GIF to make your response more expressive! If you want to include a GIF, add "GIF: search term" at the end of your message. 
+For example: "aww that's so sweet! ✨ GIF: happy cat" or "lmao that's hilarious xD GIF: laughing cat"
+Only add GIFs when it feels natural and adds to the conversation - don't force it.`;
 
 const model = genAI.getGenerativeModel({ 
   model: 'gemini-2.5-flash',
@@ -63,6 +68,45 @@ const model = genAI.getGenerativeModel({
 // Track when the bot last spoke in each channel (channelId -> timestamp)
 const lastSpokeInChannel = new Map();
 const ENGAGEMENT_DURATION = 3 * 60 * 1000; // 3 minutes in milliseconds
+
+// Function to search for a GIF using GIPHY API
+async function searchGiphy(searchTerm) {
+  console.log(`[GIF] Searching GIPHY for: "${searchTerm}"`);
+  const giphyApiKey = process.env.GIPHY_API_KEY;
+  if (!giphyApiKey) {
+    console.log('[GIF] ❌ GIPHY API key not set in environment variables, skipping GIF search');
+    return null;
+  }
+  console.log(`[GIF] GIPHY API key found (${giphyApiKey.substring(0, 8)}...)`);
+
+  try {
+    const searchQuery = encodeURIComponent(searchTerm);
+    const url = `https://api.giphy.com/v1/gifs/search?api_key=${giphyApiKey}&q=${searchQuery}&limit=1&rating=g`;
+    console.log(`[GIF] Making request to GIPHY API...`);
+    
+    const response = await fetch(url);
+    console.log(`[GIF] GIPHY API response status: ${response.status} ${response.statusText}`);
+    
+    const data = await response.json();
+    console.log(`[GIF] GIPHY API response data:`, JSON.stringify(data).substring(0, 200));
+    
+    if (data.data && data.data.length > 0) {
+      const gifUrl = data.data[0].images.original.url;
+      console.log(`[GIF] ✅ Found GIF for "${searchTerm}": ${gifUrl.substring(0, 50)}...`);
+      return gifUrl;
+    } else {
+      console.log(`[GIF] ⚠️ No GIFs found in GIPHY response for "${searchTerm}"`);
+      if (data.meta) {
+        console.log(`[GIF] GIPHY meta info:`, data.meta);
+      }
+      return null;
+    }
+  } catch (error) {
+    console.error('[GIF] ❌ Error searching GIPHY:', error.message);
+    console.error('[GIF] Full error:', error);
+    return null;
+  }
+}
 
 // Proactive messaging configuration
 const PROACTIVE_CHECK_INTERVAL = 5 * 60 * 1000; // 5 minutes in milliseconds
@@ -299,7 +343,7 @@ client.on(Events.MessageCreate, async (message) => {
   
   // Ambient emoji reactions - chance to add an emoji reaction on top of any text reply
   if (message.content.trim().length > 0) {
-    const emojiReactionChance = 0.90; // 90% chance to react with emoji
+    const emojiReactionChance = 0.50; // 50% chance to react with emoji
     const roll = Math.random();
     if (roll < emojiReactionChance) {
       console.log(`[Emoji Reaction] Chance roll passed (${(roll * 100).toFixed(1)}% < ${(emojiReactionChance * 100).toFixed(1)}%) - will react`);
@@ -369,7 +413,10 @@ client.on(Events.MessageCreate, async (message) => {
   // Determine reply trigger
   let replyTrigger = '';
   if (mentioned) replyTrigger = 'mentioned';
-  else if (isDM) replyTrigger = 'DM';
+  else if (isDM) {
+    replyTrigger = 'DM';
+    console.log(`[Message] DM detected - will always reply`);
+  }
   else if (isReplyToBot) replyTrigger = 'reply to bot';
   else if (mentionsName) replyTrigger = 'name mentioned';
   else if (isEngaged) replyTrigger = `engaged (last spoke ${timeSinceLastSpoke}s ago)`;
@@ -402,9 +449,16 @@ client.on(Events.MessageCreate, async (message) => {
     query = message.content; // Use full message content for context
   }
 
-  // Ignore completely empty messages
-  if (!query && !mentioned) {
+  // Ignore completely empty messages (but always allow DMs)
+  if (!query && !mentioned && !isDM) {
+    console.log(`[Message] Skipping empty message (not a DM)`);
     return;
+  }
+  
+  // For DMs, ensure we have something to work with
+  if (isDM && !query) {
+    query = message.content || 'hello'; // Use message content or default
+    console.log(`[Message] DM with empty content, using: "${query}"`);
   }
 
   // Show typing indicator
@@ -439,26 +493,86 @@ client.on(Events.MessageCreate, async (message) => {
     // Generate response using Gemini with conversation context
     const result = await model.generateContent(responsePrompt);
     const response = await result.response;
-    const text = response.text();
+    let text = response.text();
+    
+    console.log(`[GIF] Raw response from Gemini (first 200 chars): "${text.substring(0, 200)}..."`);
 
-    // Discord has a 2000 character limit per message
-    if (text.length > 2000) {
-      console.log(`[Message] Response too long (${text.length} chars), splitting into chunks`);
-      // Split into chunks if too long
-      const chunks = text.match(/.{1,1900}/g) || [];
-      for (let i = 0; i < chunks.length; i++) {
+    // Check if response includes a GIF request (format: "GIF: search term")
+    const gifMatch = text.match(/GIF:\s*"([^"]+)"|GIF:\s*([^\n]+)/i);
+    let gifSearchTerm = null;
+    let gifUrl = null;
+    let isForcedGif = false;
+
+    if (gifMatch) {
+      gifSearchTerm = (gifMatch[1] || gifMatch[2]).trim();
+      console.log(`[GIF] ✅ Gemini suggested GIF: "${gifSearchTerm}"`);
+      
+      // Remove the GIF instruction from the text
+      text = text.replace(/GIF:\s*"[^"]+"|GIF:\s*[^\n]+/gi, '').trim();
+      console.log(`[GIF] Text after removing GIF instruction: "${text.substring(0, 100)}..."`);
+      
+      // Search for the GIF
+      gifUrl = await searchGiphy(gifSearchTerm);
+    } else {
+      console.log(`[GIF] ❌ No GIF request detected in Gemini response`);
+      
+      // Forced GIF chance - add a GIF even if Gemini didn't suggest one (for testing)
+      const FORCED_GIF_CHANCE = 0.05; // 5% chance to force a GIF
+      if (Math.random() < FORCED_GIF_CHANCE) {
+        // Random GIF search terms that fit E-KiTTY's personality
+        const randomGifTerms = [
+          'happy cat', 'cute cat', 'cat meme', 'cat dancing', 'cat excited',
+          'hug', 'love', 'sparkles', 'happy', 'excited', 'cute', 'adorable',
+          'laughing', 'funny', 'playful', 'cat reaction', 'cat gif'
+        ];
+        gifSearchTerm = randomGifTerms[Math.floor(Math.random() * randomGifTerms.length)];
+        isForcedGif = true;
+        console.log(`[GIF] 🎲 Forced GIF triggered! Random search term: "${gifSearchTerm}"`);
+        
+        // Search for the forced GIF
+        gifUrl = await searchGiphy(gifSearchTerm);
+      } else {
+        console.log(`[GIF] Forced GIF chance not triggered (${(FORCED_GIF_CHANCE * 100).toFixed(1)}% chance)`);
+      }
+    }
+
+    // Send the text response
+    if (text.length > 0) {
+      // Discord has a 2000 character limit per message
+      if (text.length > 2000) {
+        console.log(`[Message] Response too long (${text.length} chars), splitting into chunks`);
+        // Split into chunks if too long
+        const chunks = text.match(/.{1,1900}/g) || [];
+        for (let i = 0; i < chunks.length; i++) {
+          await message.reply({
+            content: chunks[i],
+            allowedMentions: { repliedUser: false },
+          });
+        }
+        console.log(`[Message] ✅ Sent ${chunks.length} message(s) in ${channelName}`);
+      } else {
         await message.reply({
-          content: chunks[i],
+          content: text,
           allowedMentions: { repliedUser: false },
         });
+        console.log(`[Message] ✅ Replied in ${channelName}`);
       }
-      console.log(`[Message] ✅ Sent ${chunks.length} message(s) in ${channelName}`);
+    }
+
+    // Send GIF if found
+    if (gifUrl) {
+      try {
+        console.log(`[GIF] Attempting to send GIF URL: ${gifUrl.substring(0, 50)}...`);
+        await message.channel.send(gifUrl);
+        console.log(`[GIF] ✅ Successfully sent ${isForcedGif ? 'forced ' : ''}GIF in ${channelName} (search: "${gifSearchTerm}")`);
+      } catch (error) {
+        console.error(`[GIF] ❌ Error sending GIF in ${channelName}:`, error.message);
+        console.error(`[GIF] Full error:`, error);
+      }
+    } else if (gifSearchTerm) {
+      console.log(`[GIF] ⚠️ Could not find GIF for "${gifSearchTerm}" ${isForcedGif ? '(forced)' : '(from Gemini)'}`);
     } else {
-      await message.reply({
-        content: text,
-        allowedMentions: { repliedUser: false },
-      });
-      console.log(`[Message] ✅ Replied in ${channelName}`);
+      console.log(`[GIF] No GIF to send (no search term generated)`);
     }
     
     // Update the timestamp when bot last spoke in this channel
