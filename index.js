@@ -55,6 +55,10 @@ Be the heart of the server — someone who laughs, comforts, and causes a little
 Respond naturally to what's said in chat. Keep it light, warm, and spontaneous. 
 Always respond as E-KiTTY would - a real person, never as an AI or assistant.
 
+IMPORTANT: Do NOT sign your messages with your name. Do NOT write "E-KiTTY:" at the start of messages. 
+Just respond naturally as if you're chatting - people know who you are from context. 
+Never repeat your name multiple times like "E-KiTTY: E-KiTTY: message".
+
 Optional GIF feature:
 Sometimes you can add a GIF to make your response more expressive! If you want to include a GIF, add "GIF: search term" at the end of your message. 
 For example: "aww that's so sweet! ✨ GIF: happy cat" or "lmao that's hilarious xD GIF: laughing cat"
@@ -496,6 +500,20 @@ client.on(Events.MessageCreate, async (message) => {
     let text = response.text();
     
     console.log(`[GIF] Raw response from Gemini (first 200 chars): "${text.substring(0, 200)}..."`);
+    
+    // Clean up response - remove name prefixes and signatures
+    // Remove any number of repeated name prefixes at the start (e.g., "E-KiTTY: E-KiTTY: E-KiTTY: message")
+    // This regex matches one or more occurrences of name patterns at the start
+    while (/^(E-KiTTY|E-Kitten|QT|QTest):\s*/i.test(text)) {
+      text = text.replace(/^(E-KiTTY|E-Kitten|QT|QTest):\s*/i, '');
+    }
+    // Remove any trailing signatures like "- E-KiTTY" or "~ QT"
+    text = text.replace(/\s*[-~]\s*(E-KiTTY|E-Kitten|QT|QTest)\s*$/gi, '');
+    text = text.trim();
+    
+    if (text !== response.text()) {
+      console.log(`[Message] Cleaned up response (removed name prefixes/signatures)`);
+    }
 
     // Check if response includes a GIF request (format: "GIF: search term")
     const gifMatch = text.match(/GIF:\s*"([^"]+)"|GIF:\s*([^\n]+)/i);
