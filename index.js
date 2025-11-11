@@ -100,15 +100,21 @@ async function canSendProactiveMessage(channel) {
 
 // Function to send proactive message
 async function tryProactiveMessage(guild) {
+  console.log(`[Proactive] Checking ${guild.name}...`);
+  
   // Check if within active hours
   if (!isWithinActiveHours()) {
+    console.log(`[Proactive] Outside active hours (9AM-7PM MT), skipping`);
     return;
   }
+  console.log(`[Proactive] Within active hours ✓`);
 
   // Check if there are online users
   if (!hasOnlineUsers(guild)) {
+    console.log(`[Proactive] No online users, skipping`);
     return;
   }
+  console.log(`[Proactive] Online users detected ✓`);
 
   // Find a suitable channel (general chat channels)
   const channels = guild.channels.cache.filter(
@@ -118,18 +124,25 @@ async function tryProactiveMessage(guild) {
   );
 
   if (channels.size === 0) {
+    console.log(`[Proactive] No suitable channels found`);
     return;
   }
+  console.log(`[Proactive] Found ${channels.size} channel(s) to check`);
 
   // Try each channel
   for (const channel of channels.values()) {
-    if (await canSendProactiveMessage(channel)) {
+    const canSend = await canSendProactiveMessage(channel);
+    if (canSend) {
+      console.log(`[Proactive] Channel ${channel.name} is eligible`);
       // Roll the dice (8.33% chance)
-      if (Math.random() < PROACTIVE_CHANCE) {
+      const roll = Math.random();
+      if (roll < PROACTIVE_CHANCE) {
+        console.log(`[Proactive] Chance roll passed (${(roll * 100).toFixed(1)}% < ${(PROACTIVE_CHANCE * 100).toFixed(1)}%)`);
         try {
           // Generate a proactive message
           const proactivePrompt = `You're in a Discord server and want to say something spontaneous and friendly to break the silence. The chat has been quiet for a bit but there are people online. Write a short, casual message in E-KiTTY's style (lowercase, emoji-filled, playful). Keep it brief and natural - maybe a random thought, a question, or just checking in.`;
           
+          console.log(`[Proactive] Generating message...`);
           const result = await model.generateContent(proactivePrompt);
           const response = await result.response;
           const message = response.text();
@@ -140,14 +153,19 @@ async function tryProactiveMessage(guild) {
           // Update engagement tracking
           lastSpokeInChannel.set(channel.id, Date.now());
           
-          console.log(`Sent proactive message in ${channel.name}`);
+          console.log(`[Proactive] ✅ Sent proactive message in #${channel.name}`);
           return; // Only send one proactive message per check
         } catch (error) {
-          console.error('Error sending proactive message:', error);
+          console.error('[Proactive] ❌ Error sending proactive message:', error);
         }
+      } else {
+        console.log(`[Proactive] Chance roll failed (${(roll * 100).toFixed(1)}% >= ${(PROACTIVE_CHANCE * 100).toFixed(1)}%)`);
       }
+    } else {
+      console.log(`[Proactive] Channel ${channel.name} not eligible (chat active or last message from bot)`);
     }
   }
+  console.log(`[Proactive] No proactive message sent this cycle`);
 }
 
 // Bot ready event
@@ -170,6 +188,8 @@ client.on(Events.GuildMemberAdd, async (member) => {
   // Skip if the new member is a bot
   if (member.user.bot) return;
 
+  console.log(`[Member Join] ${member.user.username} joined ${member.guild.name}`);
+  
   try {
     // Find a welcome channel (try common names, then system channel)
     let welcomeChannel = member.guild.channels.cache.find(
@@ -185,10 +205,11 @@ client.on(Events.GuildMemberAdd, async (member) => {
 
     // If still no channel found, skip greeting
     if (!welcomeChannel) {
-      console.log(`No welcome channel found for guild ${member.guild.name}, skipping greeting`);
+      console.log(`[Member Join] No welcome channel found, skipping greeting`);
       return;
     }
 
+    console.log(`[Member Join] Generating greeting for ${member.user.username}...`);
     // Generate a personalized greeting using Gemini
     const memberName = member.user.displayName || member.user.username;
     const greetingPrompt = `A new member named ${memberName} just joined the Discord server. Write a warm, excited greeting in E-KiTTY's style (casual, lowercase, emoji-filled, playful). Keep it short and friendly, like you're genuinely happy to see them. Make sure to greet them by name or mention them.`;
@@ -208,10 +229,12 @@ client.on(Events.GuildMemberAdd, async (member) => {
       allowedMentions: { users: [member.user.id] }
     });
 
+    console.log(`[Member Join] ✅ Greeted ${member.user.username} in #${welcomeChannel.name}`);
+    
     // Update engagement tracking for this channel
     lastSpokeInChannel.set(welcomeChannel.id, Date.now());
   } catch (error) {
-    console.error('Error greeting new member:', error);
+    console.error('[Member Join] ❌ Error greeting new member:', error);
   }
 });
 
@@ -220,6 +243,10 @@ client.on(Events.MessageCreate, async (message) => {
   // Ignore messages from bots
   if (message.author.bot) return;
 
+  const channelName = message.channel.type === ChannelType.DM 
+    ? `DM with ${message.author.username}` 
+    : `#${message.channel.name}`;
+  
   // Check if message mentions the bot
   const mentioned = message.mentions.users.has(client.user.id);
   
@@ -247,13 +274,32 @@ client.on(Events.MessageCreate, async (message) => {
   const channelId = message.channel.id;
   const lastSpoke = lastSpokeInChannel.get(channelId);
   const isEngaged = lastSpoke && (Date.now() - lastSpoke) < ENGAGEMENT_DURATION;
+  const timeSinceLastSpoke = lastSpoke ? Math.round((Date.now() - lastSpoke) / 1000) : null;
+  
+  // Log message received
+  console.log(`[Message] ${message.author.username} in ${channelName}: "${message.content.substring(0, 50)}${message.content.length > 50 ? '...' : ''}"`);
+  
+  // Determine reply trigger
+  let replyTrigger = '';
+  if (mentioned) replyTrigger = 'mentioned';
+  else if (isDM) replyTrigger = 'DM';
+  else if (isReplyToBot) replyTrigger = 'reply to bot';
+  else if (mentionsName) replyTrigger = 'name mentioned';
+  else if (isEngaged) replyTrigger = `engaged (last spoke ${timeSinceLastSpoke}s ago)`;
   
   // If not mentioned, not a DM, not a reply to bot, doesn't mention name, and not engaged, apply probability check (30% chance to reply)
   if (!mentioned && !isDM && !isReplyToBot && !mentionsName && !isEngaged) {
     const replyChance = 0.3; // 30% chance to reply when not mentioned and idle
-    if (Math.random() > replyChance) {
+    const roll = Math.random();
+    if (roll > replyChance) {
+      console.log(`[Message] Skipping reply (random chance: ${(roll * 100).toFixed(1)}% > ${(replyChance * 100).toFixed(1)}%)`);
       return; // Don't reply this time
     }
+    replyTrigger = `random chance (${(roll * 100).toFixed(1)}% < ${(replyChance * 100).toFixed(1)}%)`;
+  }
+  
+  if (replyTrigger) {
+    console.log(`[Message] Will reply - Trigger: ${replyTrigger}`);
   }
 
   // Extract the query (remove mention if present)
@@ -278,6 +324,7 @@ client.on(Events.MessageCreate, async (message) => {
   await message.channel.sendTyping();
 
   try {
+    console.log(`[Message] Fetching conversation context...`);
     // Fetch last 15 messages for context
     const messages = await message.channel.messages.fetch({ limit: 15 });
     const messageArray = Array.from(messages.values())
@@ -286,6 +333,8 @@ client.on(Events.MessageCreate, async (message) => {
         // Filter out other bots (keep e-kitten's messages) and messages with no text content
         return (!msg.author.bot || msg.author.id === client.user.id) && msg.content.trim().length > 0;
       });
+    
+    console.log(`[Message] Found ${messageArray.length} messages in context`);
     
     // Format conversation history for context
     const conversationHistory = messageArray.map(msg => {
@@ -296,6 +345,7 @@ client.on(Events.MessageCreate, async (message) => {
     // Combine conversation history with current query
     const fullContext = conversationHistory ? `${conversationHistory}\n\nCurrent message to respond to: ${query}` : query;
 
+    console.log(`[Message] Generating response with Gemini...`);
     // Generate response using Gemini with conversation context
     const result = await model.generateContent(fullContext);
     const response = await result.response;
@@ -303,6 +353,7 @@ client.on(Events.MessageCreate, async (message) => {
 
     // Discord has a 2000 character limit per message
     if (text.length > 2000) {
+      console.log(`[Message] Response too long (${text.length} chars), splitting into chunks`);
       // Split into chunks if too long
       const chunks = text.match(/.{1,1900}/g) || [];
       for (let i = 0; i < chunks.length; i++) {
@@ -311,17 +362,20 @@ client.on(Events.MessageCreate, async (message) => {
           allowedMentions: { repliedUser: false },
         });
       }
+      console.log(`[Message] ✅ Sent ${chunks.length} message(s) in ${channelName}`);
     } else {
       await message.reply({
         content: text,
         allowedMentions: { repliedUser: false },
       });
+      console.log(`[Message] ✅ Replied in ${channelName}`);
     }
     
     // Update the timestamp when bot last spoke in this channel
     lastSpokeInChannel.set(channelId, Date.now());
+    console.log(`[Message] Updated engagement tracking for ${channelName}`);
   } catch (error) {
-    console.error('Error generating response:', error);
+    console.error('[Message] ❌ Error generating response:', error);
     await message.reply({
       content: 'Sorry, I encountered an error while processing your request.',
       allowedMentions: { repliedUser: false },
