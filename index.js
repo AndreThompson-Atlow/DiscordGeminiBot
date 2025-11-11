@@ -117,13 +117,30 @@ client.on(Events.MessageCreate, async (message) => {
   // Check if message is a DM
   const isDM = message.channel.type === ChannelType.DM;
   
+  // Check if message is a reply to E-KiTTY's message
+  let isReplyToBot = false;
+  if (message.reference && message.reference.messageId) {
+    try {
+      const referencedMessage = await message.channel.messages.fetch(message.reference.messageId);
+      isReplyToBot = referencedMessage.author.id === client.user.id;
+    } catch (error) {
+      // If we can't fetch the referenced message, assume it's not a reply to us
+      isReplyToBot = false;
+    }
+  }
+  
+  // Check if message content includes E-KiTTY's name variations (case-insensitive)
+  const messageContentLower = message.content.toLowerCase();
+  const nameVariations = ['e-kitty', 'e-kitten', 'kitty', 'qt', 'qtest', 'e-kittty'];
+  const mentionsName = nameVariations.some(name => messageContentLower.includes(name));
+  
   // Check if bot is "engaged" (spoke recently in this channel)
   const channelId = message.channel.id;
   const lastSpoke = lastSpokeInChannel.get(channelId);
   const isEngaged = lastSpoke && (Date.now() - lastSpoke) < ENGAGEMENT_DURATION;
   
-  // If not mentioned, not a DM, and not engaged, apply probability check (30% chance to reply)
-  if (!mentioned && !isDM && !isEngaged) {
+  // If not mentioned, not a DM, not a reply to bot, doesn't mention name, and not engaged, apply probability check (30% chance to reply)
+  if (!mentioned && !isDM && !isReplyToBot && !mentionsName && !isEngaged) {
     const replyChance = 0.3; // 30% chance to reply when not mentioned and idle
     if (Math.random() > replyChance) {
       return; // Don't reply this time
