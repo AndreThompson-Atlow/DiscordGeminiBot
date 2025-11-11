@@ -267,7 +267,13 @@ client.on(Events.MessageCreate, async (message) => {
   
   // Check if message content includes E-KiTTY's name variations (case-insensitive)
   const messageContentLower = message.content.toLowerCase();
-  const nameVariations = ['e-kitty', 'e-kitten', 'kitty', 'qt', 'qtest', 'e-kittty'];
+  const nameVariations = [
+    'e-kitty', 'e-kitten', 'ekitty', 'ekitten', 
+    'kitty', 'kitten', 
+    'qt', 'qtest', 
+    'e-kittty', 'ekittty',
+    'e kitty', 'e kitten'
+  ];
   const mentionsName = nameVariations.some(name => messageContentLower.includes(name));
   
   // Check if bot is "engaged" (spoke recently in this channel)
@@ -278,6 +284,69 @@ client.on(Events.MessageCreate, async (message) => {
   
   // Log message received
   console.log(`[Message] ${message.author.username} in ${channelName}: "${message.content.substring(0, 50)}${message.content.length > 50 ? '...' : ''}"`);
+  
+  // Ambient emoji reactions - chance to add an emoji reaction on top of any text reply
+  if (message.content.trim().length > 0) {
+    const emojiReactionChance = 0.30; // 30% chance to react with emoji
+    if (Math.random() < emojiReactionChance) {
+      try {
+        console.log(`[Emoji Reaction] Deciding to react with emoji...`);
+        
+        // Diverse emoji list with variety (not just cat emojis)
+        const diverseEmojis = [
+          // Discord built-in reactions
+          '👍', '❤️', '😂', '😊', '😮', '😢', '🙏', '🔥',
+          // Playful/expressive
+          '💖', '✨', '💕', '🌟', '💫', '🥺', '😳', '😭',
+          // Cat emojis (but not exclusively)
+          '🐾', '😸', '😹',
+          // Other fun reactions
+          '🎉', '💯', '👀', '🤔', '😎', '🥰', '😋', '🤗',
+          '💪', '🎊', '🌈', '⭐', '💝', '😇', '🤩', '😌'
+        ];
+        
+        // 50% chance to use Gemini, 50% chance to use curated list for variety
+        let emoji;
+        if (Math.random() < 0.5) {
+          // Use Gemini for context-aware reactions
+          const emojiPrompt = `What's a single emoji that's a good reaction to this message? Be creative and pick something that matches the message's tone - could be happy, sad, funny, supportive, etc. Use variety - don't always pick the same emoji. Message: "${message.content.substring(0, 200)}". Respond with ONLY the emoji, nothing else.`;
+          
+          const result = await model.generateContent(emojiPrompt);
+          const response = await result.response;
+          emoji = response.text().trim();
+          
+          // Clean up the emoji (remove any extra text, quotes, etc.)
+          emoji = emoji.replace(/["']/g, '').trim();
+          // Extract just the first emoji if multiple characters
+          const emojiMatch = emoji.match(/\p{Emoji}+/u);
+          if (emojiMatch) {
+            emoji = emojiMatch[0];
+          }
+          
+          // Validate Gemini's response
+          if (!emoji || !/\p{Emoji}/u.test(emoji)) {
+            emoji = diverseEmojis[Math.floor(Math.random() * diverseEmojis.length)];
+            console.log(`[Emoji Reaction] Gemini response invalid, using curated list: ${emoji}`);
+          } else {
+            console.log(`[Emoji Reaction] Gemini selected: ${emoji}`);
+          }
+        } else {
+          // Use curated list for guaranteed variety
+          emoji = diverseEmojis[Math.floor(Math.random() * diverseEmojis.length)];
+          console.log(`[Emoji Reaction] Using curated list: ${emoji}`);
+        }
+        
+        // React to the message (non-blocking, continues to normal reply logic)
+        message.react(emoji).catch(err => {
+          console.error('[Emoji Reaction] Error adding reaction:', err);
+        });
+        console.log(`[Emoji Reaction] ✅ Reacted with ${emoji} to message in ${channelName}`);
+      } catch (error) {
+        console.error('[Emoji Reaction] ❌ Error reacting with emoji:', error);
+        // Continue to normal reply logic if emoji reaction fails
+      }
+    }
+  }
   
   // Determine reply trigger
   let replyTrigger = '';
